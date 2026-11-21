@@ -1,0 +1,293 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Dyson-Style Creek Crawl Builder — Player &amp; DM Map Studio</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <!-- TOP HEADER (Hidden in Print) -->
+  <header class="app-header no-print">
+    <div class="brand">
+      <div class="brand-icon">✒️</div>
+      <div>
+        <h1 id="header-campaign-title">Dyson-Style Creek Crawl Builder</h1>
+        <p class="subtitle">Organic Cross-Hatched Maps &bull; Separate Player &amp; DM Editions &bull; Flexible Story Engine &bull; Ctrl+Z Undo</p>
+      </div>
+    </div>
+
+    <div class="header-controls">
+      <!-- UNDO / REDO -->
+      <div class="control-group">
+        <button id="btn-undo" class="btn" title="Undo last change (Ctrl+Z)" disabled>↩️ Undo</button>
+        <button id="btn-redo" class="btn" title="Redo change (Ctrl+Y / Ctrl+Shift+Z)" disabled>↪️ Redo</button>
+      </div>
+
+      <!-- PLAYER MAP vs DM MAP EDITION SWITCHER -->
+      <div class="control-group edition-switch-group">
+        <span class="group-label">Map Edition:</span>
+        <button id="btn-mode-player" class="btn btn-mode active" title="Player Table Map: Clean map with only Sheet/Zone numbers — hides trap & ambush circles so players don't metagame!">
+          🛡️ Player Map (No Trap Numbers)
+        </button>
+        <button id="btn-mode-dm" class="btn btn-mode" title="DM Reference Map: Shows all numbered circles (#1–#48), trap zones, ambush markers, and inline legend!">
+          👁️ DM Map (All #s &amp; Secrets)
+        </button>
+      </div>
+
+      <!-- PLAYER NUMBER VISIBILITY -->
+      <div class="control-group">
+        <label for="player-num-style" title="Choose what numbers appear on Player Maps so players don't avoid trap circles!">Player Numbers:</label>
+        <select id="player-num-style">
+          <option value="landmarks_only" selected>Obvious Landmarks Only (Hide Traps &amp; Ambushes)</option>
+          <option value="sheet_only">Sheet Number Only (Zero Pinpoint Circles)</option>
+          <option value="all_subtle">All Numbers (Subtle Plain Text, No Circles)</option>
+        </select>
+        <label class="toggle-label" title="Toggle 1-inch tactical grid inside the creek and banks">
+          <input type="checkbox" id="chk-show-grid" checked />
+          <span>1" Grid</span>
+        </label>
+      </div>
+
+      <!-- PRINT & SAVE ACTIONS -->
+      <div class="control-group">
+        <button id="btn-print-player-maps" class="btn btn-accent" title="Print all 8.5x11 Player Battle Maps (safe to lay on the table!)">
+          🖨️ Print Player Maps
+        </button>
+        <button id="btn-print-dm-maps" class="btn btn-primary" title="Print all 8.5x11 DM Reference Maps with trap circles, DCs & page keys">
+          🗺️ Print DM Maps
+        </button>
+        <button id="btn-print-dm-guide" class="btn" title="Print the full Numbered DM Adventure Guide & Monster Statblocks">
+          📖 Print DM Guide Book
+        </button>
+        <button id="btn-export-json" class="btn" title="Save campaign JSON">💾 Save</button>
+        <button id="btn-import-json" class="btn" title="Load campaign JSON">📂 Load</button>
+        <input type="file" id="file-import" accept=".json" style="display:none" />
+      </div>
+    </div>
+  </header>
+
+  <!-- MAIN WORKSPACE (Hidden in Print) -->
+  <div class="workspace no-print">
+    <!-- LEFT SIDEBAR: Story Flexibility Studio + Branching Sheet Flowchart -->
+    <aside class="sidebar-left">
+      <div class="panel-section story-flex-panel">
+        <div class="panel-header">
+          <h2>🎭 Story &amp; Quest Flexibility</h2>
+        </div>
+        <div class="form-group">
+          <label for="story-preset-select">Story Template / Preset</label>
+          <select id="story-preset-select">
+            <option value="beavers_to_kraken">Beavers Ruse &rarr; Kraken Reality (Default)</option>
+            <option value="fey_logging_hag">Dammed by Spriggans &rarr; Blackwater River Hag</option>
+            <option value="alchemist_sludge">Alchemist Guild Spill &rarr; Mutated Ooze Hydra</option>
+            <option value="smuggler_creek">Bandit Toll Weirs &rarr; Pirate Sea-Serpent</option>
+            <option value="custom_blank">Custom Blank Creek Crawl (Build Your Own)</option>
+          </select>
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label for="seed-input">Map Seed</label>
+            <input type="text" id="seed-input" value="DYSON-KRAKEN" />
+          </div>
+          <div class="form-group" style="justify-content: flex-end;">
+            <button id="btn-generate" class="btn btn-primary" style="margin-top:18px;">🎲 Generate</button>
+          </div>
+        </div>
+        <button id="btn-toggle-story-modal" class="btn btn-full">✍️ Edit Campaign Lore, Acts &amp; Twist</button>
+      </div>
+
+      <div class="panel-section flowchart-panel">
+        <div class="panel-header">
+          <h2>🗺️ Creek Flowchart (<span id="sheet-count-badge">12</span> Sheets)</h2>
+          <div class="flow-sheet-btns">
+            <button id="btn-add-sheet" class="btn-xs" title="Add a new creek sheet to the crawl">➕ Sheet</button>
+            <button id="btn-del-sheet" class="btn-xs btn-danger-xs" title="Delete current sheet">🗑️ Sheet</button>
+          </div>
+        </div>
+        <p class="panel-help">Click any sheet to edit. Use the Fork/Links editor on the right to rewire how sheets connect!</p>
+
+        <div id="flowchart-container" class="flowchart-container">
+          <!-- SVG Flowchart rendered by JS -->
+        </div>
+      </div>
+    </aside>
+
+    <!-- CENTER: Dyson Canvas / Side-by-Side Player & DM Preview / DM Guide -->
+    <main class="center-stage">
+      <div class="stage-toolbar">
+        <div class="view-tabs">
+          <button class="tab-btn active" data-view="editor">✒️ Dyson Map Editor (8.5&times;11")</button>
+          <button class="tab-btn" data-view="compare">⚖️ Compare Player vs. DM Map</button>
+          <button class="tab-btn" data-view="overview">🗂️ All Sheets Overview</button>
+          <button class="tab-btn" data-view="dm-guide">📖 Numbered DM Guide &amp; Statblocks</button>
+        </div>
+        <div class="page-quick-nav">
+          <button id="btn-print-current" class="btn-sm" title="Print only the currently active sheet in current mode">🖨️ Print This Sheet</button>
+          <button id="btn-prev-page" class="btn-sm">&larr; Prev</button>
+          <span id="current-page-indicator">Sheet 1 / 12</span>
+          <button id="btn-next-page" class="btn-sm">Next &rarr;</button>
+        </div>
+      </div>
+
+      <!-- STORY LORE DRAWER (Collapsible Campaign Lore & Act Editor) -->
+      <div id="story-drawer" class="story-drawer" style="display:none;">
+        <div class="story-drawer-inner">
+          <div class="story-drawer-header">
+            <h3>✍️ Customize Campaign Lore, Hook, Twist &amp; Boss</h3>
+            <button id="btn-close-story-drawer" class="btn-sm">Done &times;</button>
+          </div>
+          <div class="story-drawer-grid">
+            <div class="form-group">
+              <label for="camp-title-input">Campaign / Quest Title</label>
+              <input type="text" id="camp-title-input" />
+            </div>
+            <div class="form-group">
+              <label for="camp-act1-input">Act I Name (Early Sheets)</label>
+              <input type="text" id="camp-act1-input" />
+            </div>
+            <div class="form-group">
+              <label for="camp-act2-input">Act II Name (Mid-Creek Twist)</label>
+              <input type="text" id="camp-act2-input" />
+            </div>
+            <div class="form-group">
+              <label for="camp-act3-input">Act III Name (Climax Sheets)</label>
+              <input type="text" id="camp-act3-input" />
+            </div>
+            <div class="form-group" style="grid-column: span 2;">
+              <label for="camp-hook-input">The Town Rumor / Initial Hook (What players think is happening)</label>
+              <textarea id="camp-hook-input" rows="2"></textarea>
+            </div>
+            <div class="form-group" style="grid-column: span 2;">
+              <label for="camp-twist-input">The Ugly Reality / Plot Twist (What is actually at the end of the creek)</label>
+              <textarea id="camp-twist-input" rows="2"></textarea>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- VIEW 1: SINGLE SHEET DYSON EDITOR -->
+      <div id="view-editor" class="stage-view active">
+        <div class="sheet-preview-wrapper">
+          <div id="active-sheet-container" class="sheet-preview"></div>
+        </div>
+      </div>
+
+      <!-- VIEW 2: SIDE-BY-SIDE COMPARE PLAYER MAP VS DM MAP -->
+      <div id="view-compare" class="stage-view">
+        <div id="compare-container" class="compare-container"></div>
+      </div>
+
+      <!-- VIEW 3: ALL SHEETS OVERVIEW -->
+      <div id="view-overview" class="stage-view">
+        <div id="overview-grid" class="overview-grid"></div>
+      </div>
+
+      <!-- VIEW 4: NUMBERED DM ADVENTURE GUIDE -->
+      <div id="view-dm-guide" class="stage-view">
+        <div id="dm-guide-preview" class="dm-guide-preview"></div>
+      </div>
+    </main>
+
+    <!-- RIGHT SIDEBAR: Sheet Config, Sculpting Tools & Flexible Numbered Key Editor -->
+    <aside class="sidebar-right">
+      <div class="panel-section">
+        <h2>📄 Sheet Configuration</h2>
+        <div class="form-group">
+          <label for="page-title">Sheet Title</label>
+          <input type="text" id="page-title" />
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label for="page-act">Story Phase (5-Stage Escalation)</label>
+            <select id="page-act">
+              <option value="1">Stage 1: Natural Hazards (Pools &amp; Slick Rocks)</option>
+              <option value="2">Stage 2: Basic Creek Beasts &amp; Upstream Hook</option>
+              <option value="3">Stage 3: Dire Beavers &amp; Break-the-Dam Challenge</option>
+              <option value="4">Stage 4: Kraken Long-Range Tentacle Challenges</option>
+              <option value="5">Stage 5: The Kraken of Blackwater Spring (Boss)</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label for="page-flow">Watercourse Shape</label>
+            <select id="page-flow">
+              <option value="W-E">Long Winding Creek (W &rarr; E)</option>
+              <option value="W-NE-SE">East/South Fork Split (W &rarr; E + S)</option>
+              <option value="W-N-E">North Tributary Fork (W &rarr; E + N)</option>
+              <option value="N-E">Gorge Bend (North &rarr; East)</option>
+              <option value="W-N-S-E">Four-Way Creek Confluence</option>
+              <option value="CAVERN">Flooded Sinkhole Cavern (Boss)</option>
+            </select>
+          </div>
+        </div>
+        <div class="form-group">
+          <label for="page-read-aloud">Sheet Read-Aloud / Atmosphere Text</label>
+          <textarea id="page-read-aloud" rows="2"></textarea>
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label for="page-links-input" title="Comma-separated sheet IDs that this page leads to (e.g. 3, 4)">Next Sheet Links</label>
+            <input type="text" id="page-links-input" placeholder="e.g. 3, 4" />
+          </div>
+          <div class="form-group">
+            <label for="page-exit-e-input" title="East edge banner label">East Exit Label</label>
+            <input type="text" id="page-exit-e-input" placeholder="e.g. -> SHEET 2" />
+          </div>
+        </div>
+        <div class="form-row">
+          <button id="btn-reroll-creek" class="btn">🌊 Re-Carve Creek</button>
+          <button id="btn-clear-props" class="btn">🧹 Clear Props</button>
+        </div>
+      </div>
+
+      <div class="panel-section">
+        <h2>🛠️ Map Sculpting &amp; Stamp Tools</h2>
+        <p class="panel-help">Every edit supports <strong>Ctrl+Z Undo</strong>! Drag numbers in <em>DM Map</em> mode, or sculpt organic caverns and dams.</p>
+        <div id="tool-mode-palette" class="tool-palette">
+          <button class="tool-btn active" data-mode="move_poi">
+            <span class="tool-swatch">#</span>
+            <span>Drag / Move Number (#)</span>
+          </button>
+          <button class="tool-btn" data-mode="widen_creek">
+            <span class="tool-swatch">🌊</span>
+            <span>Carve Pool / Alcove</span>
+          </button>
+          <button class="tool-btn" data-mode="narrow_creek">
+            <span class="tool-swatch">🪨</span>
+            <span>Add Hatched Rock Pillar</span>
+          </button>
+          <button class="tool-btn" data-mode="stamp_dam">
+            <span class="tool-swatch">🪵</span>
+            <span>Draw Dam / Log Weir</span>
+          </button>
+          <button class="tool-btn" data-mode="stamp_rock">
+            <span class="tool-swatch">⛰️</span>
+            <span>Place Creek Boulder</span>
+          </button>
+          <button class="tool-btn" data-mode="stamp_stump">
+            <span class="tool-swatch">🌲</span>
+            <span>Place Gnawed Stump</span>
+          </button>
+        </div>
+      </div>
+
+      <div class="panel-section poi-editor-section">
+        <div class="panel-header">
+          <h2>🔢 Page Encounters &amp; Secrets</h2>
+          <div class="flow-sheet-btns">
+            <button id="btn-add-poi" class="btn-xs btn-primary">➕ Add #</button>
+            <button id="btn-roll-poi" class="btn-xs" title="Generate a random creek trap, monster, or oddity">🎲 Random #</button>
+          </div>
+        </div>
+        <p class="panel-help">Uncheck <strong>"Show on Player Map"</strong> for hidden traps &amp; ambushes so players only see obvious landmarks (or nothing at all)!</p>
+        <div id="poi-list-editor" class="poi-list-editor"></div>
+      </div>
+    </aside>
+  </div>
+
+  <!-- PRINT CONTAINER (Only visible when printing) -->
+  <div id="print-container" class="print-only"></div>
+
+  <script src="app.js"></script>
+</body>
+</html>
