@@ -627,6 +627,212 @@ function updateUndoRedoButtons() {
 }
 
 // ============================================================================
+// IN-APP STORY WIZARD ENGINE (Rebuilds All 48 Encounters on the Same Map!)
+// ============================================================================
+const WIZARD_TIER_SCALING = {
+  low: {
+    label: 'Tier 1 (Levels 1–3 • Novice Party)',
+    easyDC: 10, stdDC: 12, hardDC: 13,
+    slipDmg: '1d4', trapDmg: '2d4', fail1Dmg: '2d6', fail2Dmg: '3d6',
+    limbAC: 13, limbHP: 22, limbAtk: '+5', limbDmg: '1d8+2',
+    builderAC: 12, builderHP: 18,
+    bossAC: 14, bossHP: 85, bossWeakHP: 70, bossAtk: '+6', bossSlamDmg: '2d6+3', bossBiteDmg: '2d10+3', pillarDmg: '3d10', goldReward: '150 gp'
+  },
+  medium: {
+    label: 'Tier 2 (Levels 4–6 • Seasoned Party)',
+    easyDC: 11, stdDC: 13, hardDC: 14,
+    slipDmg: '1d6', trapDmg: '2d6', fail1Dmg: '2d8', fail2Dmg: '3d8',
+    limbAC: 14, limbHP: 35, limbAtk: '+6', limbDmg: '1d10+3',
+    builderAC: 13, builderHP: 25,
+    bossAC: 15, bossHP: 125, bossWeakHP: 100, bossAtk: '+7', bossSlamDmg: '2d6+4', bossBiteDmg: '3d8+4', pillarDmg: '4d10', goldReward: '350 gp'
+  },
+  high: {
+    label: 'Tier 3 (Levels 7–10 • Veteran Heroes)',
+    easyDC: 13, stdDC: 15, hardDC: 16,
+    slipDmg: '2d6', trapDmg: '3d6', fail1Dmg: '3d8', fail2Dmg: '5d8',
+    limbAC: 16, limbHP: 55, limbAtk: '+8', limbDmg: '2d8+4',
+    builderAC: 15, builderHP: 42,
+    bossAC: 17, bossHP: 195, bossWeakHP: 160, bossAtk: '+9', bossSlamDmg: '3d6+5', bossBiteDmg: '4d10+5', pillarDmg: '6d10', goldReward: '850 gp'
+  }
+};
+
+function applyStoryWizardToCurrentMap(spec) {
+  const s = WIZARD_TIER_SCALING[spec.challengeTier] || WIZARD_TIER_SCALING.medium;
+  const title = spec.title || 'Curse of the Upper Creek';
+  const townHook = spec.townHook || 'Dirty creek water halted the town distillery; locals blame dams upstream.';
+  const hookNPC = spec.hookNPC || 'Bram the Water-Warden';
+  const startHazards = spec.startingHazards || 'Algae-slick limestone shelves, sudden 15-ft plunge pools, and sucking clay flats';
+  const basicAnimals = spec.basicAnimals || 'Giant Snapping Turtles, panicked Giant River Otters, and Giant Bullfrogs';
+  const midBuilders = spec.middleBuilders || 'Giant Dire Beavers';
+  const midBarrier = spec.middleBarrier || 'The Great 15-ft Timber & Mud Dam';
+  const bigBoss = spec.bigBoss || 'The Juvenile Creek Kraken';
+  const bossLimb = spec.bossProjection || 'Long-Range Hunting Tentacle';
+  const bossSign = spec.bossClueSign || 'circular purple tentacle sucker-scars and oily black cephalopod ink';
+
+  appState.campaign = {
+    title,
+    act1Name: `Stage 1: Natural Hazards (${startHazards.slice(0, 28)})`,
+    act2Name: `Stage 2: ${basicAnimals.slice(0, 24)} & ${hookNPC}`,
+    act3Name: `Stage 3: ${midBuilders} & Break-the-Dam Challenge`,
+    act4Name: `Stage 4: ${bigBoss}'s ${bossLimb} Challenges`,
+    act5Name: `Stage 5: Final Boss — ${bigBoss}`,
+    hook: `${townHook} (${s.label})`,
+    twist: `The party arrived late! The ${midBuilders} built ${midBarrier} to hold back ${bigBoss} at the creek headwaters. Worse, ${bigBoss} projects a single ${bossLimb} far downstream through flooded limestone tubes. Breaking the barrier washes out ${bossSign}—and ${hookNPC}'s distress call from upstream!`
+  };
+
+  // Preserve the exact existing map geometry (bankPaths, waterPaths, boulders, etc.) and custom POI coordinates!
+  const sheetTemplates = [
+    // 1
+    {
+      title: `Sheet 1: Slick-Rock Shallows & Deep Plunge Pools`,
+      readAloud: `At the mouth of the creek canyon, the town's water intake sits choked with silt. Ahead, a sluggish stream trickles over slick boulders into dark plunge pools. (${startHazards})`,
+      pois: [
+        { type: 'landmark', showOnPlayer: true, name: `Clogged Town Sluice & ${hookNPC}'s Tracks`, summary: `Mud-choked intake gate & fresh tracks of ${hookNPC} leading upstream.`, details: `Initial Hook: ${townHook}\nTrail: Fresh bootprints belonging to **${hookNPC}** lead east up the gorge (DC ${s.easyDC} Survival).` },
+        { type: 'trap', showOnPlayer: false, name: `Slick Rock Shelf (Slip-on-Rock Check)`, summary: `Tilted, slime-coated stone ledge along the north bank (DC ${s.stdDC} Acrobatics).`, details: `Environmental Hazard (${startHazards}): Crossing at normal speed requires a **DC ${s.stdDC} Dexterity (Acrobatics)** check. On a failure, take **${s.slipDmg} bludgeoning damage**, fall Prone, and slide into the Deep Plunge Pool (#3)!` },
+        { type: 'trap', showOnPlayer: false, name: `Sudden 15-ft Deep Plunge Pool`, summary: `Deceptive 15-ft underwater drop-off hidden under murky silt (DC ${s.stdDC} Athletics).`, details: `Environmental Hazard: Drops sheerly into a 15-ft flooded pothole (DC ${s.stdDC} Passive Perception). Characters in heavy gear must make a **DC ${s.stdDC} Strength (Athletics)** check to swim up or sink.` },
+        { type: 'trap', showOnPlayer: true, name: `Mossy Boulder Stepping-Stones`, summary: `Wet boulders spanning the eastern narrows (DC ${s.easyDC} Acrobatics/Athletics).`, details: `Environmental Challenge: Crossing requires a **DC ${s.easyDC} Acrobatics or Athletics** check. Tying a rope grants advantage.` }
+      ]
+    },
+    // 2
+    {
+      title: `Sheet 2: Whirlpool Gorge & The First Creek Fork`,
+      readAloud: `The creek splits around a limestone bluff: to the east, water cascades down slick rock steps; to the south, a deep pool swirls with drifting brush.`,
+      pois: [
+        { type: 'trap', showOnPlayer: false, name: `Sucking Clay Mire-Flat`, summary: `Vacuum-clay along the south bank (DC ${s.stdDC} STR save or Restrained).`, details: `Environmental Hazard: Stepping off the stones triggers a **DC ${s.stdDC} Strength save** or sink thigh-deep (**Restrained**; action DC ${s.stdDC} Athletics to free).` },
+        { type: 'trap', showOnPlayer: false, name: `The Siphon Whirlpool (Deep Pool & Undertow)`, summary: `20-ft deep pool with downward current (DC ${s.stdDC} Athletics).`, details: `Environmental Hazard: Swimming within 10 ft of center requires **DC ${s.stdDC} Athletics** or take **${s.slipDmg} bludgeoning damage** against the submerged rock culvert.` },
+        { type: 'trap', showOnPlayer: true, name: `North Fork: Wet Shale Staircase (To Sheet 3)`, summary: `Wet 10-ft rock steps requiring DC ${s.stdDC} Athletics/Acrobatics.`, details: `Fork Option A (To Sheet 3): Slipping deals **${s.slipDmg} bludgeoning damage** and slides back into pool #6. Piton marks from **${hookNPC}** lead up these steps!` },
+        { type: 'landmark', showOnPlayer: true, name: `South Fork: Rolling Driftwood Log-Bridge (To Sheet 4)`, summary: `Bark-stripped pine trunk spanning the southern channel (DC ${s.easyDC} Acrobatics).`, details: `Fork Option B (To Sheet 4): The log rolls when stepped on (**DC ${s.easyDC} Acrobatics** or splash into 10-ft water).` }
+      ]
+    },
+    // 3
+    {
+      title: `Sheet 3: North Fork — Displaced Wildlife & ${hookNPC}'s Pack`,
+      readAloud: `The northern gorge teems with agitated creek wildlife (${basicAnimals})—all splashing downstream in panic as if fleeing something up ahead.`,
+      pois: [
+        { type: 'monster', showOnPlayer: false, name: `Camouflaged ${basicAnimals.split(',')[0].trim()}`, summary: `Basic Animal ambush in the mid-stream shallows!`, details: `Basic Animal Encounter: **${basicAnimals.split(',')[0].trim()}** (AC ${s.builderAC + 1}, HP ${s.builderHP + 10}, Attack ${s.limbAtk} for ${s.trapDmg}) lunges if stepped near.` },
+        { type: 'monster', showOnPlayer: false, name: `Panicked Stampede of ${basicAnimals}`, summary: `Spooked wildlife rushing downstream in terror.`, details: `Basic Animal Encounter: **${basicAnimals}** (AC ${s.builderAC}, HP ${s.builderHP}) bolt downstream. **DC ${s.easyDC} Animal Handling** reveals they are fleeing ${midBuilders} and a shaking deep-water shadow ahead!` },
+        { type: 'landmark', showOnPlayer: true, name: `HOOK #1A: ${hookNPC}'s Torn Pack & Field Journal`, summary: `Abandoned gear & urgent note pulling the party east to Sheet 5!`, details: `HOOK TO KEEP MOVING: **${hookNPC}'s** rucksack holds a *Potion of Healing*, 2 flares, and a journal: *"Found ${midBarrier} built by ${midBuilders} at the confluence! Taking my powder keg to breach it—follow me east to Sheet 5!"*` },
+        { type: 'trap', showOnPlayer: false, name: `Slick Waterfall Chute & Biting Swarm`, summary: `Wet rock climb (DC ${s.easyDC} Athletics) harassed by biting creek insects.`, details: `Hazard: A biting swarm (AC 13, HP ${s.builderHP}) attacks while climbing the slick eastern chute.` }
+      ]
+    },
+    // 4
+    {
+      title: `Sheet 4: South Fork — Reed Slough & Mired Supply Mule`,
+      readAloud: `Cattails choke this southern oxbow where displaced creek creatures lurk in the shallows and freshly worked timber litters the shore.`,
+      pois: [
+        { type: 'trap', showOnPlayer: false, name: `Shifting Floating Log-Mat (Slip Check)`, summary: `Rolling logs over a 12-ft mud trench (DC ${s.stdDC} Acrobatics).`, details: `Environmental Hazard: **DC ${s.stdDC} Acrobatics** to cross or take **${s.slipDmg} bludgeoning damage** between grinding logs.` },
+        { type: 'monster', showOnPlayer: false, name: `Slough Ambush (${basicAnimals})`, summary: `Basic creek predators hunting in the reed beds.`, details: `Basic Animal Encounter: **3 ${basicAnimals.split(',').pop().trim()}** (AC ${s.builderAC}, HP ${s.builderHP}, Attack ${s.limbAtk} for ${s.slipDmg}+2 + Grappled DC ${s.easyDC}).` },
+        { type: 'landmark', showOnPlayer: true, name: `HOOK #1B: ${hookNPC}'s Mud-Mired Pack Mule`, summary: `Stuck expedition mule—its missing saddlebag & powder keg were dragged to Sheet 5!`, details: `HOOK TO KEEP MOVING: **${hookNPC}'s** mule is stuck in the mud (carrying 50 ft silk rope, crowbar, 25 gp). The other saddlebag with the town's master sluice-key and blasting powder was dragged east to Sheet 5 by **${midBuilders}**!` },
+        { type: 'monster', showOnPlayer: true, name: `First ${midBuilders} Sentinel`, summary: `Advance scout of the ${midBuilders} retreating toward Sheet 5.`, details: `Foreshadowing: A **${midBuilders} Scout** (AC ${s.builderAC}, HP ${s.builderHP}) sounds an alarm and retreats east to Sheet 5!` }
+      ]
+    },
+    // 5
+    {
+      title: `Sheet 5: Outer Works of the ${midBuilders}`,
+      readAloud: `The two channels reunite in a flooded basin fortified by ${midBuilders}. Just upstream to the east rises ${midBarrier}!`,
+      pois: [
+        { type: 'trap', showOnPlayer: false, name: `Submerged Sharpened Stake-Bed`, summary: `Underwater defensive abatis planted by ${midBuilders} (DC ${s.stdDC} DEX).`, details: `Hazard: Wading east without probing inflicts **${s.trapDmg} piercing damage** (DC ${s.stdDC} DEX save half).` },
+        { type: 'monster', showOnPlayer: true, name: `Fortified Outpost of the ${midBuilders}`, summary: `3 ${midBuilders} defending the outer weir—bearing strange wounds from upstream!`, details: `Combat: **3 ${midBuilders}** (AC ${s.builderAC}, HP ${s.builderHP}, Attack ${s.limbAtk} for ${s.trapDmg}+2).\nClue: Two of them bear fresh **${bossSign}** on their backs from upstream!` },
+        { type: 'landmark', showOnPlayer: true, name: `Main Channel Approach to ${midBarrier} (To Sheet 6)`, summary: `Direct catwalk approach to the main dam face on Sheet 6.`, details: `Path A: Leads directly to **${midBarrier}** on Sheet 6.` },
+        { type: 'landmark', showOnPlayer: true, name: `Southern Overflow Ravine (To Sheet 7)`, summary: `Flooded side-channel flanking the dam toward Sheet 7.`, details: `Path B: Circles south around the barrier to Sheet 7.` }
+      ]
+    },
+    // 6
+    {
+      title: `Sheet 6: ${midBarrier} & Break-the-Dam Challenge`,
+      readAloud: `${midBarrier} towers fifteen feet high across the gorge, holding back a groaning reservoir of dark water. ${midBuilders} guard the crest—and wedged into the timbers is ${hookNPC}'s waterproof powder keg!`,
+      pois: [
+        { type: 'trap', showOnPlayer: false, name: `Tensioned Deadfall Bracing-Log (Trap)`, summary: `Disturbing the wrong lower support log whips a timber across the bank (DC ${s.stdDC} DEX).`, details: `Hazard: Pulling lower bracing without **DC ${s.stdDC} Investigation** releases a log for **${s.fail1Dmg} bludgeoning damage** (DC ${s.stdDC} DEX half).` },
+        { type: 'monster', showOnPlayer: true, name: `Guardians of ${midBarrier}`, summary: `Leader & 2 ${midBuilders} defending the crest while glancing terrified upstream!`, details: `Combat: **1 ${midBuilders} Alpha** (AC ${s.builderAC + 1}, HP ${s.builderHP + 16}) and **2 ${midBuilders}** (AC ${s.builderAC}, HP ${s.builderHP}).` },
+        { type: 'trap', showOnPlayer: true, name: `SKILL CHALLENGE: Breaking ${midBarrier}!`, summary: `3 Successes before 2 Failures (DC ${s.stdDC})—or risk getting crushed by the dam burst!`, details: `BREAK-THE-DAM CHALLENGE: Demolishing ${midBarrier} safely requires **3 Successes before 2 Failures (DC ${s.stdDC})** (Investigation/Nature to spot keystone, Athletics/Sleight of Hand to rig ${hookNPC}'s powder keg or pry king-pin, Acrobatics/Athletics to reach high ground).\n⚠️ **IF THEY DO IT WRONG:**\n• **1st Failure:** Crushing log avalanche deals **${s.fail1Dmg} bludgeoning damage** (DC ${s.stdDC} DEX save) and pins (DC ${s.easyDC} STR).\n• **2nd Failure:** Catastrophic 20-ft flash-flood dam burst! **DC ${s.hardDC} STR save** or take **${s.fail2Dmg} bludgeoning damage**, swept 40 ft downstream + 1 level of Exhaustion!` },
+        { type: 'landmark', showOnPlayer: true, name: `HOOK #2: The Post-Dam Twist & Distress Horn Upstream!`, summary: `Breaking the dam washes out ${bossSign} & ${hookNPC}'s distress call from Sheet 8!`, details: `THE TWIST & HOOK TO KEEP GOING: When the dam bursts, the water pouring downstream is fouled with **${bossSign}**, rolling out slaughtered ${midBuilders} crushed by **${bigBoss}'s ${bossLimb}**! Echoing from Sheet 8 come three blasts on **${hookNPC}'s signal horn** as a single ${bossLimb} drags their raft upstream!` }
+      ]
+    },
+    // 7
+    {
+      title: `Sheet 7: South Spillway — Flank Breach & Slaughtered Builders`,
+      readAloud: `This southern bypass skirts the earthen wing of ${midBarrier}, where shattered timbers are smeared with ${bossSign}.`,
+      pois: [
+        { type: 'trap', showOnPlayer: true, name: `Earthen Wing-Dam (Flank Demolition Site)`, summary: `Alternative breach point (2 Successes at DC ${s.stdDC}, or ${s.fail1Dmg} rockslide on fail).`, details: `Alternative Breach: 2 DC ${s.stdDC} Athletics/Investigation checks, or take **${s.fail1Dmg} bludgeoning damage** on failure.` },
+        { type: 'landmark', showOnPlayer: true, name: `Slaughtered ${midBuilders} Barricade`, summary: `Dead ${midBuilders} covered in ${bossSign}.`, details: `Twist Clue: DC ${s.easyDC} Medicine/Nature confirms they were killed by a colossal **${bossLimb}** from upstream.` },
+        { type: 'trap', showOnPlayer: false, name: `First Strike of the Long-Range ${bossLimb}`, summary: `A single probing ${bossLimb} lashes from a submerged vent (${s.limbAtk}, ${s.limbDmg})!`, details: `Hazard: Lashes once (${s.limbAtk} to hit, ${s.limbDmg}) and retreats east toward Sheet 9!` },
+        { type: 'landmark', showOnPlayer: true, name: `HOOK #2B: ${hookNPC}'s Dragged Skiff & Upstream Trail`, summary: `Smashed boat & fresh trail leading east into Sheet 9.`, details: `Hook to Keep Going: ${hookNPC}'s wrecked boat and a trail of ${bossSign} lead east to Sheet 9.` }
+      ]
+    },
+    // 8
+    {
+      title: `Sheet 8: Boss Challenge I — The Log-Bridge ${bossLimb} Snatch`,
+      readAloud: `With the dam drained, deep karst sinkholes gape in the riverbed. Through these flooded rock tubes, ${bigBoss} projects a single long-distance ${bossLimb} half a mile downstream!`,
+      pois: [
+        { type: 'trap', showOnPlayer: false, name: `Submerged Karst Tube & Slick Ledge`, summary: `Flooded limestone tunnel used by the long-range ${bossLimb} (DC ${s.stdDC} Acrobatics).`, details: `Hazard: Slime-coated bank requires **DC ${s.stdDC} Acrobatics** at full speed.` },
+        { type: 'monster', showOnPlayer: false, name: `CHALLENGE #1: The Bridge-Smasher ${bossLimb}`, summary: `Single Long-Range ${bossLimb} (AC ${s.limbAC}, ${s.limbHP} HP) grabbing bridge crossers!`, details: `LONG-RANGE CHALLENGE #1: A single **${bossLimb}** (AC ${s.limbAC}, HP ${s.limbHP}, Reach 25 ft) erupts at **${s.limbAtk} for ${s.limbDmg}** + **Grappled (DC ${s.stdDC})**, dragging victims 15 ft/round toward the submerged tube (#29). Dealing ${s.limbHP} damage forces it to recoil upstream!` },
+        { type: 'landmark', showOnPlayer: true, name: `Mossy Chasm Log-Bridge (South Crossover to Sheet 9)`, summary: `Ironwood trunk spanning the gorge (DC ${s.stdDC} DEX save if struck by ${bossLimb}).`, details: `Terrain: Cross south to Sheet 9 or push east to Sheet 10.` },
+        { type: 'landmark', showOnPlayer: true, name: `Waterfall Grotto of Rescued ${hookNPC}`, summary: `Dry shelf behind the cascade where wounded ${hookNPC} hands over the Master Key!`, details: `Rescue: **${hookNPC}** warns that **${bigBoss}** is blocking the main artesian spring on Sheet 12, and gives the party **2 Potions of Healing** and a **Scroll of Lightning Bolt**.` }
+      ]
+    },
+    // 9
+    {
+      title: `Sheet 9: Boss Challenge II — Three-Vent Sinkhole Gauntlet`,
+      readAloud: `Three circular blue-black sinkholes honeycomb the creek bed here. Bubbles burst from one vent, then another, as a single long-distance ${bossLimb} darts beneath the rock!`,
+      pois: [
+        { type: 'trap', showOnPlayer: false, name: `CHALLENGE #2: Three-Vent "Whack-a-Limb" Gauntlet`, summary: `The single ${bossLimb} erupts from Vent A (#33), B (#34), or C (#36) each round!`, details: `LONG-RANGE CHALLENGE #2: Roll 1d6 each round for active vent (**DC ${s.stdDC} Perception** spots bubbles). Sweeps 15-ft radius (**DC ${s.stdDC} DEX save** or **${s.trapDmg}+3 damage**). Roll heavy boulders (**DC ${s.stdDC} Athletics**) into two vents to trap the ${bossLimb}!` },
+        { type: 'monster', showOnPlayer: false, name: `Central Sinkhole Vent & Scavenger Swarm`, summary: `Main eruption vent patrolled by 2 Swarms of Quippers.`, details: `Minions: **2 Swarms of Quippers** (AC 13, HP ${s.builderHP}).` },
+        { type: 'landmark', showOnPlayer: true, name: `High Limestone Balcony & Plugging Boulders`, summary: `10-ft stone shelf with loose boulders to drop onto Vent #34!`, details: `Tactical Advantage: Shoving a boulder (**DC ${s.easyDC} Athletics**) deals **${s.fail2Dmg} bludgeoning damage** to the ${bossLimb} in #34 and seals that vent!` },
+        { type: 'landmark', showOnPlayer: true, name: `Eastern Vent & Sunken Adventurer Cache`, summary: `Drowned pack containing Boots of Striding and Springing & 90 gp.`, details: `Treasure: *Boots of Striding and Springing* and 90 gp.` }
+      ]
+    },
+    // 10
+    {
+      title: `Sheet 10: Boss Challenge III — The Last Builder & Constricted Gorge`,
+      readAloud: `Just outside the cavern mouth of the spring stands a final barricade facing upstream—where a lone Elder of the ${midBuilders} is pinned by a coiling ${bossLimb}!`,
+      pois: [
+        { type: 'landmark', showOnPlayer: true, name: `Upstream-Facing Defense Stakes`, summary: `Sharpened stakes pointing EAST toward Sheet 12.`, details: `Proof: Every stake points *upstream toward ${bigBoss}'s lair*.` },
+        { type: 'monster', showOnPlayer: true, name: `CHALLENGE #3: 3-Round Timed Rescue of the Elder Builder`, summary: `Free the Elder of the ${midBuilders} from the Constrictor ${bossLimb} within 3 rounds!`, details: `LONG-RANGE CHALLENGE #3: Deal ${s.limbHP + 5} damage to the **Constrictor ${bossLimb}** (AC ${s.limbAC}) within 3 rounds to save **Old Iron-Tooth** (AC ${s.builderAC + 1}, HP ${s.builderHP + 18}), who then **joins the party for the Boss Fight on Sheet 12**!` },
+        { type: 'trap', showOnPlayer: false, name: `Pressurized Fouled-Water Geyser`, summary: `Rock crack spraying blinding sludge every round on Init 10 (DC ${s.stdDC} CON).`, details: `Hazard: 15-ft spray; **DC ${s.stdDC} CON save** or Blinded 1 round.` },
+        { type: 'landmark', showOnPlayer: true, name: `North Cavern Archway (To Sheet 12)`, summary: `Echoing limestone maw leading into the Boss Sinkhole.`, details: `Transition: Enters Sheet 12.` }
+      ]
+    },
+    // 11
+    {
+      title: `Sheet 11: Boss Challenge IV — The Blind Tremorsense Canyon`,
+      readAloud: `The southern approach to the spring is filled with waist-deep dark water and blinding mist. Beneath the surface, a long ${bossLimb} hunts purely by water-vibrations!`,
+      pois: [
+        { type: 'trap', showOnPlayer: false, name: `Narrow Slippery Wall-Ribbon (Slip Check)`, summary: `2-ft dry stone ledge along the south wall (DC ${s.stdDC} Acrobatics).`, details: `Hazard: **DC ${s.stdDC} Acrobatics** to stay out of the water; slipping triggers #42!` },
+        { type: 'monster', showOnPlayer: false, name: `CHALLENGE #4: The Tremorsense Stalker ${bossLimb}`, summary: `Stealth & Decoy Challenge! Strikes anyone who splashes (DC ${s.stdDC} Stealth).`, details: `LONG-RANGE CHALLENGE #4: Moving in the water without a **DC ${s.stdDC} Stealth** check triggers a reaction snatch (**${s.limbAtk} to hit, ${s.limbDmg} + Grappled**). Toss boulders from #43 as vibration decoys to gain advantage against the ${bossLimb}!` },
+        { type: 'landmark', showOnPlayer: true, name: `Northern Balcony & Decoy Boulders`, summary: `Dry rock shelf (DC ${s.easyDC} Athletics) with loose stones for vibration decoys.`, details: `Tactical Vantage: Drop decoy rocks or rig a rope traverse.` },
+        { type: 'landmark', showOnPlayer: true, name: `Southern Cavern Causeway (To Sheet 12)`, summary: `Stone steps rising into the southern flank of Sheet 12.`, details: `Transition: Enters Sheet 12.` }
+      ]
+    },
+    // 12
+    {
+      title: `Sheet 12: BOSS — ${bigBoss} of Blackwater Spring`,
+      readAloud: `The creek's source is a vast flooded limestone sinkhole. Coiled directly over the town's artesian spring vent is ${bigBoss}—grown monstrous while the party delayed!`,
+      pois: [
+        { type: 'landmark', showOnPlayer: true, name: `Shattered Megadam Causeway (Entry Ledges)`, summary: `Dry timber & stone platforms overlooking the sinkhole pool.`, details: `Entry: Half-cover platforms. Rescued Old Iron-Tooth (#38) charges in to help!` },
+        { type: 'trap', showOnPlayer: false, name: `Cracked Cavern Ceiling Pillars (Boss Environmental Weapon)`, summary: `Collapse the pillars onto ${bigBoss} for ${s.pillarDmg} bludgeoning damage & stun!`, details: `Environmental Weapon: Topple with **DC ${s.hardDC} Athletics** or 25 damage to deal **${s.pillarDmg} bludgeoning damage** to ${bigBoss}!` },
+        { type: 'monster', showOnPlayer: true, name: `FINAL BOSS: ${bigBoss.toUpperCase()}`, summary: `AC ${s.bossAC}, HP ${s.bossHP} (or ${s.bossWeakHP} HP if weakened in Stage 4) + Lair Actions!`, details: `FINAL BOSS FIGHT: **${bigBoss}** (AC ${s.bossAC}, HP ${s.bossHP}; reduced to **${s.bossWeakHP} HP** if the party defeated at least two ${bossLimb} challenges on Sheets 8–11!).\n• **Multiattack:** Two *${bossLimb} Slams* (${s.bossAtk} to hit, reach 25 ft, **${s.bossSlamDmg}** + Grappled DC ${s.hardDC}) and one *Crushing Bite* (${s.bossAtk} to hit, **${s.bossBiteDmg}**).` },
+        { type: 'landmark', showOnPlayer: true, name: `The Pure Artesian Spring & Sunken Hoard`, summary: `Crystal-clear water flushes the creek clean down to town + ${s.goldReward} hoard!`, details: `Victory: Slaying ${bigBoss} unblocks the artesian spring, restoring clean water to town! Hoard: **${s.goldReward}**, *Decanter of Endless Water*, *Mariner's Armor +1*, and *Trident of Fish Command*.` }
+      ]
+    }
+  ];
+
+  appState.pages.forEach((page, pIdx) => {
+    const tpl = sheetTemplates[pIdx % sheetTemplates.length];
+    page.title = tpl.title.replace(/^Sheet \d+:/, `Sheet ${page.id}:`);
+    page.readAloud = tpl.readAloud;
+    page.pois.forEach((poi, i) => {
+      const pTpl = tpl.pois[i % tpl.pois.length];
+      if (!pTpl) return;
+      poi.type = pTpl.type;
+      poi.showOnPlayer = pTpl.showOnPlayer;
+      poi.name = pTpl.name;
+      poi.summary = pTpl.summary;
+      poi.details = pTpl.details;
+    });
+  });
+}
+
+// ============================================================================
 // TRUE ORGANIC VECTOR SPLINE GENERATOR (No Blocky Grid Cells!)
 // ============================================================================
 function pointsToClosedSmoothPath(pts, tension = 0.22) {
@@ -1870,6 +2076,36 @@ function initApp() {
 
   document.getElementById('btn-close-story-drawer').addEventListener('click', () => {
     document.getElementById('story-drawer').style.display = 'none';
+  });
+
+  // Interactive Story Builder Wizard (Rebuilds all 48 Encounters on the current map geometry!)
+  document.getElementById('btn-open-story-wizard').addEventListener('click', () => {
+    const wiz = document.getElementById('story-wizard-drawer');
+    document.getElementById('story-drawer').style.display = 'none';
+    wiz.style.display = wiz.style.display === 'none' ? 'block' : 'none';
+  });
+
+  document.getElementById('btn-close-story-wizard').addEventListener('click', () => {
+    document.getElementById('story-wizard-drawer').style.display = 'none';
+  });
+
+  document.getElementById('btn-apply-story-wizard').addEventListener('click', () => {
+    pushUndoState();
+    applyStoryWizardToCurrentMap({
+      title: document.getElementById('wiz-title').value.trim(),
+      challengeTier: document.getElementById('wiz-tier').value,
+      townHook: document.getElementById('wiz-hook').value.trim(),
+      hookNPC: document.getElementById('wiz-npc').value.trim(),
+      startingHazards: document.getElementById('wiz-start').value.trim(),
+      basicAnimals: document.getElementById('wiz-animals').value.trim(),
+      middleBuilders: document.getElementById('wiz-builders').value.trim(),
+      middleBarrier: document.getElementById('wiz-barrier').value.trim(),
+      bigBoss: document.getElementById('wiz-boss').value.trim(),
+      bossProjection: document.getElementById('wiz-limb').value.trim(),
+      bossClueSign: document.getElementById('wiz-clue').value.trim()
+    });
+    document.getElementById('story-wizard-drawer').style.display = 'none';
+    refreshAllViews();
   });
 
   ['camp-title-input', 'camp-act1-input', 'camp-act2-input', 'camp-act3-input', 'camp-hook-input', 'camp-twist-input'].forEach(id => {
