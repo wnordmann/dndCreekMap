@@ -20,6 +20,24 @@ const readline = require('readline');
 const PROJECT_ROOT = path.resolve(__dirname, '../../../..');
 const STORIES_DIR = path.join(PROJECT_ROOT, 'stories');
 const APP_JS_PATH = path.join(PROJECT_ROOT, 'app.js');
+const ENV_PATH = path.join(PROJECT_ROOT, '.env');
+
+// Load local .env file if present (git-ignored so API keys never leak to GitHub!)
+function loadDotEnv() {
+  if (!fs.existsSync(ENV_PATH)) return;
+  const lines = fs.readFileSync(ENV_PATH, 'utf8').split(/\r?\n/);
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith('#')) continue;
+    const eqIdx = trimmed.indexOf('=');
+    if (eqIdx > 0) {
+      const k = trimmed.slice(0, eqIdx).trim();
+      const v = trimmed.slice(eqIdx + 1).trim().replace(/^['"]|['"]$/g, '');
+      if (!process.env[k]) process.env[k] = v;
+    }
+  }
+}
+loadDotEnv();
 
 // Challenge Level Scaling Table
 const TIER_SCALING = {
@@ -608,6 +626,83 @@ async function promptInteractive() {
   };
 }
 
+// Optionally call Gemini AI from the CLI if GEMINI_API_KEY is available in .env or environment
+async function enrichWithGeminiAI(baseCampaign, spec, apiKey, modelName = 'gemini-2.5-flash') {
+  const tierKey = (spec.challengeTier || 'medium').toLowerCase();
+  const s = TIER_SCALING[tierKey] || TIER_SCALING.medium;
+
+  const prompt = `You are an expert D&D 5e adventure designer creating a 12-Sheet (48-Encounter) creek/river dungeon crawl in the style of Dyson Logos.
+Write 12 sheets (4 encounters per sheet, numbered #1 through #48) following the 5-stage escalation:
+- Quest Title: ${spec.title}
+- Challenge Tier: ${s.label} (Easy DC ${s.easyDC}, Standard DC ${s.stdDC}, Hard DC ${s.hardDC}; Slip damage ${s.slipDmg}, Trap damage ${s.trapDmg}, Dam Fail damage ${s.fail1Dmg} / ${s.fail2Dmg}; Boss AC ${s.bossAC}, Boss HP ${s.bossHP})
+- Town Hook: ${spec.townHook}
+- Missing NPC Hook: ${spec.hookNPC}
+- Stage 1 Environmental Hazards (Sheets 1-2): ${spec.startingHazards}
+- Stage 2 Early Creek Wildlife (Sheets 3-4): ${spec.basicAnimals}
+- Stage 3 Middle Barrier Builders (Sheets 5-7): ${spec.middleBuilders}
+- Stage 3 Barrier & Break-the-Dam Skill Challenge (Sheet 6): ${spec.middleBarrier}
+- Stage 4 Pre-Boss Long-Range Projection Challenges (Sheets 8-11): ${spec.bossProjection}
+- Post-Dam Twist Clue: ${spec.bossClueSign}
+- Stage 5 Final Big Boss (Sheet 12): ${spec.bigBoss}
+
+Return ONLY valid JSON:
+{
+  "campaign": { "title": "...", "act1Name": "...", "act2Name": "...", "act3Name": "...", "act4Name": "...", "act5Name": "...", "hook": "...", "twist": "..." },
+  "sheets": [
+    {
+      "id": 1,
+      "title": "Sheet 1: ...",
+      "readAloud": "...",
+      "pois": [
+        { "num": 1, "type": "landmark | trap | monster", "showOnPlayer": true, "name": "...", "summary": "...", "details": "..." }
+      ]
+    }
+  ]
+}`;
+
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(modelName)}:generateContent?key=${encodeURIComponent(apiKey)}`;
+  console.log(`\n🤖 Calling Gemini AI (${modelName}) to author 48 bespoke D&D encounters...`);
+  const res = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      contents: [{ parts: [{ text: prompt }] }],
+      generationConfig: { temperature: 0.75, responseMimeType: 'application/json' }
+    })
+  });
+
+  if (!res.ok) {
+    throw new Error(`Gemini API HTTP ${res.status}: ${(await res.text()).slice(0, 200)}`);
+  }
+  const data = await res.json();
+  const rawText = data?.candidates?.[0]?.content?.parts?.[0]?.text || '';
+  const parsed = JSON.parse(rawText.replace(/^```json\s*/i, '').replace(/```\s*$/i, '').trim());
+
+  if (parsed.campaign) {
+    baseCampaign.campaign = { ...baseCampaign.campaign, ...parsed.campaign };
+  }
+  if (Array.isArray(parsed.sheets)) {
+    baseCampaign.pages.forEach((page, pIdx) => {
+      const aiSheet = parsed.sheets.find(sh => sh.id === page.id) || parsed.sheets[pIdx];
+      if (!aiSheet) return;
+      if (aiSheet.title) page.title = aiSheet.title;
+      if (aiSheet.readAloud) page.readAloud = aiSheet.readAloud;
+      if (Array.isArray(aiSheet.pois)) {
+        page.pois.forEach((poi, i) => {
+          const aiPoi = aiSheet.pois.find(ap => ap.num === poi.num) || aiSheet.pois[i];
+          if (!aiPoi) return;
+          poi.type = ['landmark', 'trap', 'monster'].includes(aiPoi.type) ? aiPoi.type : poi.type;
+          poi.showOnPlayer = Boolean(aiPoi.showOnPlayer);
+          if (aiPoi.name) poi.name = aiPoi.name;
+          if (aiPoi.summary) poi.summary = aiPoi.summary;
+          if (aiPoi.details) poi.details = aiPoi.details;
+        });
+      }
+    });
+  }
+  return baseCampaign;
+}
+
 // Optionally update app.js default STORY_PRESETS & SHEET_BLUEPRINTS
 function applyStoryToAppJS(campaignData) {
   if (!fs.existsSync(APP_JS_PATH)) return false;
@@ -649,7 +744,20 @@ async function main() {
     spec = await promptInteractive();
   }
 
-  const campaignData = buildCampaignFromSpec(spec);
+  let campaignData = buildCampaignFromSpec(spec);
+
+  const apiKey = process.env.GEMINI_API_KEY;
+  const modelName = process.env.GEMINI_MODEL || 'gemini-2.5-flash';
+  if (apiKey && apiKey !== 'your_gemini_api_key_here' && !args.includes('--offline')) {
+    try {
+      campaignData = await enrichWithGeminiAI(campaignData, spec, apiKey, modelName);
+      console.log('✨ Gemini AI successfully generated all 48 bespoke encounters!');
+    } catch (err) {
+      console.warn(`⚠️ Gemini AI call failed (${err.message}). Falling back to offline template engine.`);
+    }
+  } else {
+    console.log('ℹ️ Running in offline template mode (set GEMINI_API_KEY in .env for live Gemini AI generation).');
+  }
 
   if (!fs.existsSync(STORIES_DIR)) {
     fs.mkdirSync(STORIES_DIR, { recursive: true });

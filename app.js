@@ -833,6 +833,147 @@ function applyStoryWizardToCurrentMap(spec) {
 }
 
 // ============================================================================
+// GEMINI AI STORY GENERATOR (Calls Google Generative Language REST API)
+// API Key is stored ONLY in browser localStorage ('dyson_creek_gemini_key')
+// ============================================================================
+const LOCAL_STORAGE_KEY_NAME = 'dyson_creek_gemini_key';
+
+async function generateStoryWithGeminiAI(spec, apiKey, modelName, statusEl) {
+  const s = WIZARD_TIER_SCALING[spec.challengeTier] || WIZARD_TIER_SCALING.medium;
+  const sheetSummaryList = appState.pages.map(p =>
+    `Sheet ${p.id} (Stage ${p.act}, Flow ${p.flow}, POIs: ${p.pois.map(x => '#' + x.num).join(', ')})`
+  ).join('\n');
+
+  const prompt = `You are an expert D&D 5e adventure designer creating a 12-Sheet (48-Encounter) creek/river dungeon crawl in the style of Dyson Logos.
+Write a complete, cohesive, and mechanically rich 5-stage escalating adventure that fits the user's existing 12-sheet map geometry.
+
+USER STORY INPUTS:
+- Quest Title: ${spec.title}
+- Challenge Tier: ${s.label} (Use Easy DC ${s.easyDC}, Standard DC ${s.stdDC}, Hard DC ${s.hardDC}; Slip damage ${s.slipDmg}, Trap damage ${s.trapDmg}, Dam Fail damage ${s.fail1Dmg} / ${s.fail2Dmg}; Boss AC ${s.bossAC}, Boss HP ${s.bossHP})
+- Initial Town Hook: ${spec.townHook}
+- Missing NPC / Trail Hook: ${spec.hookNPC}
+- Stage 1 Starting Environmental Hazards (Sheets 1-2): ${spec.startingHazards}
+- Stage 2 Early Creek Wildlife (Sheets 3-4): ${spec.basicAnimals}
+- Stage 3 Middle Barrier Builders (Sheets 5-7): ${spec.middleBuilders}
+- Stage 3 Middle Barrier & Break-the-Barrier Challenge (Sheet 6): ${spec.middleBarrier}
+- Stage 4 Pre-Boss Long-Range Projection Challenges (Sheets 8-11): ${spec.bossProjection}
+- Stage 3->4 Post-Barrier Twist Clue: ${spec.bossClueSign}
+- Stage 5 Final Big Boss at Creek Source (Sheet 12): ${spec.bigBoss}
+
+EXISTING SHEETS & NUMBERED ENCOUNTER SLOTS:
+${sheetSummaryList}
+
+DESIGN REQUIREMENTS:
+1. Follow the 5-Stage Escalation across the 12 sheets:
+   - Sheets 1–2 (Stage 1): Pure environmental creek hazards (deep plunge pools, slip-on-rock checks, undertows, mud flats) + initial trail of ${spec.hookNPC}.
+   - Sheets 3–4 (Stage 2): Displaced/agitated basic animals (${spec.basicAnimals}) + Hook #1 (${spec.hookNPC}'s torn pack/journal on Sheet 3 and mired pack animal on Sheet 4) pulling the party to the confluence on Sheet 5.
+   - Sheets 5–7 (Stage 3): ${spec.middleBuilders} defending ${spec.middleBarrier}. Sheet 6 MUST feature the "Break-the-Dam / Barrier Skill Challenge" (3 Successes before 2 Failures, with painful damage consequences if the party fails rolls!) AND Hook #2 (when the barrier breaks, ${spec.bossClueSign} washes out and ${spec.hookNPC}'s distress call echoes from upstream!).
+   - Sheets 8–11 (Stage 4): Four distinct, creative tactical challenges against ${spec.bigBoss}'s remote ${spec.bossProjection} (e.g., Bridge-Smasher grab, 3-Vent Whack-a-Limb puzzle, 3-round timed rescue of an Elder of the ${spec.middleBuilders} who can join as an ally, and a Tremorsense/Stealth decoy challenge).
+   - Sheet 12 (Stage 5): Final Boss fight against ${spec.bigBoss} at the artesian spring headwaters, including collapsible ceiling pillars and the victory hoard.
+2. Anti-Metagaming Visibility ("showOnPlayer"):
+   - Set "showOnPlayer": false for ALL hidden traps, slip checks, sudden deep pools, and monster/limb ambushes so players don't see circles to avoid on the Player Map.
+   - Set "showOnPlayer": true ONLY for obvious landmarks, major dams/bridges, or visible story hooks.
+
+Return ONLY valid JSON matching this exact structure (no markdown code fences):
+{
+  "campaign": {
+    "title": "string",
+    "act1Name": "string",
+    "act2Name": "string",
+    "act3Name": "string",
+    "act4Name": "string",
+    "act5Name": "string",
+    "hook": "string",
+    "twist": "string"
+  },
+  "sheets": [
+    {
+      "id": 1,
+      "title": "Sheet 1: ...",
+      "readAloud": "2-3 vivid sentences of read-aloud text...",
+      "pois": [
+        {
+          "num": 1,
+          "type": "landmark | trap | monster",
+          "showOnPlayer": true,
+          "name": "Short evocative title",
+          "summary": "One-line DM summary with key DC/HP",
+          "details": "Full D&D 5e mechanics, save DCs, damage rolls, tactical counterplay, and clues/treasure."
+        }
+      ]
+    }
+  ]
+}`;
+
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(modelName)}:generateContent?key=${encodeURIComponent(apiKey)}`;
+  if (statusEl) {
+    statusEl.style.color = '#60a5fa';
+    statusEl.textContent = `⏳ Contacting ${modelName}... Writing 12 sheets & 48 bespoke D&D encounters (takes ~10-20s)...`;
+  }
+
+  const response = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      contents: [{ parts: [{ text: prompt }] }],
+      generationConfig: {
+        temperature: 0.75,
+        responseMimeType: 'application/json'
+      }
+    })
+  });
+
+  if (!response.ok) {
+    const errText = await response.text();
+    throw new Error(`Gemini API HTTP ${response.status}: ${errText.slice(0, 240)}`);
+  }
+
+  const data = await response.json();
+  const rawText = data?.candidates?.[0]?.content?.parts?.[0]?.text;
+  if (!rawText) {
+    throw new Error('Gemini API returned an empty response.');
+  }
+
+  // Parse JSON (strip accidental fences if any)
+  const cleaned = rawText.replace(/^```json\s*/i, '').replace(/```\s*$/i, '').trim();
+  const parsed = JSON.parse(cleaned);
+
+  if (!parsed || !Array.isArray(parsed.sheets)) {
+    throw new Error('Gemini response JSON missing "sheets" array.');
+  }
+
+  // Apply AI story onto current map while preserving exact map geometry & POI coordinates!
+  if (parsed.campaign) {
+    appState.campaign = {
+      ...appState.campaign,
+      ...parsed.campaign
+    };
+  }
+
+  appState.pages.forEach((page, pIdx) => {
+    const aiSheet = parsed.sheets.find(sh => sh.id === page.id) || parsed.sheets[pIdx];
+    if (!aiSheet) return;
+    if (aiSheet.title) {
+      page.title = aiSheet.title.startsWith('Sheet') ? aiSheet.title : `Sheet ${page.id}: ${aiSheet.title}`;
+    }
+    if (aiSheet.readAloud) {
+      page.readAloud = aiSheet.readAloud;
+    }
+    if (Array.isArray(aiSheet.pois)) {
+      page.pois.forEach((poi, i) => {
+        const aiPoi = aiSheet.pois.find(ap => ap.num === poi.num) || aiSheet.pois[i];
+        if (!aiPoi) return;
+        poi.type = ['landmark', 'trap', 'monster'].includes(aiPoi.type) ? aiPoi.type : poi.type;
+        poi.showOnPlayer = Boolean(aiPoi.showOnPlayer);
+        if (aiPoi.name) poi.name = aiPoi.name;
+        if (aiPoi.summary) poi.summary = aiPoi.summary;
+        if (aiPoi.details) poi.details = aiPoi.details;
+      });
+    }
+  });
+}
+
+// ============================================================================
 // TRUE ORGANIC VECTOR SPLINE GENERATOR (No Blocky Grid Cells!)
 // ============================================================================
 function pointsToClosedSmoothPath(pts, tension = 0.22) {
@@ -2079,19 +2220,37 @@ function initApp() {
   });
 
   // Interactive Story Builder Wizard (Rebuilds all 48 Encounters on the current map geometry!)
-  document.getElementById('btn-open-story-wizard').addEventListener('click', () => {
-    const wiz = document.getElementById('story-wizard-drawer');
-    document.getElementById('story-drawer').style.display = 'none';
-    wiz.style.display = wiz.style.display === 'none' ? 'block' : 'none';
+  const apiKeyInput = document.getElementById('wiz-api-key');
+  const aiStatusEl = document.getElementById('wiz-ai-status');
+  const savedKey = localStorage.getItem(LOCAL_STORAGE_KEY_NAME) || '';
+  if (apiKeyInput && savedKey) {
+    apiKeyInput.value = savedKey;
+    if (aiStatusEl) {
+      aiStatusEl.style.color = '#4ade80';
+      aiStatusEl.textContent = '🔑 Loaded saved Gemini API key from browser localStorage (never stored in Git).';
+    }
+  }
+
+  if (apiKeyInput) {
+    apiKeyInput.addEventListener('input', (e) => {
+      const val = e.target.value.trim();
+      if (val) {
+        localStorage.setItem(LOCAL_STORAGE_KEY_NAME, val);
+      }
+    });
+  }
+
+  document.getElementById('btn-clear-api-key').addEventListener('click', () => {
+    localStorage.removeItem(LOCAL_STORAGE_KEY_NAME);
+    if (apiKeyInput) apiKeyInput.value = '';
+    if (aiStatusEl) {
+      aiStatusEl.style.color = '#a1a1b5';
+      aiStatusEl.textContent = 'Cleared saved Gemini API key from browser localStorage.';
+    }
   });
 
-  document.getElementById('btn-close-story-wizard').addEventListener('click', () => {
-    document.getElementById('story-wizard-drawer').style.display = 'none';
-  });
-
-  document.getElementById('btn-apply-story-wizard').addEventListener('click', () => {
-    pushUndoState();
-    applyStoryWizardToCurrentMap({
+  function getWizardSpecFromInputs() {
+    return {
       title: document.getElementById('wiz-title').value.trim(),
       challengeTier: document.getElementById('wiz-tier').value,
       townHook: document.getElementById('wiz-hook').value.trim(),
@@ -2103,9 +2262,66 @@ function initApp() {
       bigBoss: document.getElementById('wiz-boss').value.trim(),
       bossProjection: document.getElementById('wiz-limb').value.trim(),
       bossClueSign: document.getElementById('wiz-clue').value.trim()
-    });
+    };
+  }
+
+  document.getElementById('btn-open-story-wizard').addEventListener('click', () => {
+    const wiz = document.getElementById('story-wizard-drawer');
+    document.getElementById('story-drawer').style.display = 'none';
+    wiz.style.display = wiz.style.display === 'none' ? 'block' : 'none';
+  });
+
+  document.getElementById('btn-close-story-wizard').addEventListener('click', () => {
     document.getElementById('story-wizard-drawer').style.display = 'none';
+  });
+
+  // Button 1: Offline Instant Template Rebuild (No API key needed)
+  document.getElementById('btn-apply-story-wizard').addEventListener('click', () => {
+    pushUndoState();
+    applyStoryWizardToCurrentMap(getWizardSpecFromInputs());
+    if (aiStatusEl) {
+      aiStatusEl.style.color = '#4ade80';
+      aiStatusEl.textContent = '✅ Rebuilt all 48 encounters using the offline template engine! (Press Ctrl+Z to undo)';
+    }
     refreshAllViews();
+  });
+
+  // Button 2: Live Gemini AI 48-Encounter Generator
+  document.getElementById('btn-ai-story-wizard').addEventListener('click', async () => {
+    const apiKey = (apiKeyInput?.value || '').trim();
+    if (!apiKey) {
+      if (aiStatusEl) {
+        aiStatusEl.style.color = '#f87171';
+        aiStatusEl.textContent = '⚠️ Please paste your Gemini API Key above first (or click "⚡ Quick Template Rebuild" for offline mode).';
+      }
+      apiKeyInput?.focus();
+      return;
+    }
+
+    localStorage.setItem(LOCAL_STORAGE_KEY_NAME, apiKey);
+    const modelName = document.getElementById('wiz-ai-model').value || 'gemini-2.5-flash';
+    const aiBtn = document.getElementById('btn-ai-story-wizard');
+
+    try {
+      aiBtn.disabled = true;
+      aiBtn.textContent = '⏳ Gemini AI is writing 48 encounters...';
+      pushUndoState();
+      await generateStoryWithGeminiAI(getWizardSpecFromInputs(), apiKey, modelName, aiStatusEl);
+      if (aiStatusEl) {
+        aiStatusEl.style.color = '#4ade80';
+        aiStatusEl.textContent = `✨ Success! Gemini (${modelName}) generated 12 sheets and 48 bespoke encounters on your map! (Ctrl+Z to undo)`;
+      }
+      refreshAllViews();
+    } catch (err) {
+      console.error(err);
+      if (aiStatusEl) {
+        aiStatusEl.style.color = '#f87171';
+        aiStatusEl.textContent = `❌ Gemini AI Error: ${err.message}`;
+      }
+    } finally {
+      aiBtn.disabled = false;
+      aiBtn.textContent = '✨ Generate with Gemini AI (48 Bespoke Encounters)';
+    }
   });
 
   ['camp-title-input', 'camp-act1-input', 'camp-act2-input', 'camp-act3-input', 'camp-hook-input', 'camp-twist-input'].forEach(id => {

@@ -1,0 +1,5 @@
+# Never commit local API keys or environment secrets
+.env
+.env.local
+*.key
+node_modules/
